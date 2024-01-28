@@ -36,22 +36,30 @@ def has_page_mentions(text):
     matches = re.findall(pattern, text)
     return bool(matches)
 
-def update_child_page_block_with_mentions(all_matches_by_page_block_id):
-    for page_block_id, page_block_text in all_matches_by_page_block_id.items():
-        updated_block_content = {
-            "paragraph": {
-                "text": [
-                    # Exiting text content
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": page_block_text
-                        }
-                    },
-                    # Add page mention
-                ]
-            }
+# Function to create a paragraph block with mention
+def build_paragraph_with_mention(existing_text, mentioned_page_id):
+    return {
+        "paragraph": {
+            "text": [
+                {
+                    "type": "text",
+                    "text": {
+                        "content": existing_text,  # Existing text before the mention
+                    }
+                },
+                {
+                    "type": "mention",
+                    "mention": {
+                        "type": "page",
+                        "page": {"id": mentioned_page_id}  # Page ID for the mention
+                    }
+                }
+                # Add more content after the mention if needed
+            ]
         }
+    }
+
+# Need to get the page id for each page mention
         
 
 for child_block in page_block_children["results"]:
