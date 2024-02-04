@@ -12,8 +12,8 @@ from block_types import Toggle
 #Initialize the client
 notion = Client(auth=os.getenv('NOTION_TOKEN'))
 block_type_constants = BlockTypeConstants()
-existing_pages = {}
-page_name_to_id = {}
+existing_pages_dict = {}
+page_name_to_id_dict = {}
 
 def retrieve_pages(database_id):
     """Retrieve all pages from the specified database"""
@@ -50,16 +50,47 @@ def create_page(page_name, database_id):
     
     return notion.pages.create(**create_parameters)
 
+def create_page_mentions(existing_pages, database_id):
+    """
+    Use the existing_pages dictionary to create all of the new page mentions using the Notion Python SDK.
+    """
+    for page_id, page_info in existing_pages.items():
+        page_name = page_info['page_name']
+        block_mention_ids = page_info['page_block_mention_ids']
+
+        for block_id in block_mention_ids:
+            # Assuming each block needs to be updated to mention the page
+            # Fetch the block
+            block = notion.blocks.retrieve(block_id)
+            
+            # Construct the updated content for the block
+            # This part highly depends on the structure of your blocks and how you want to format the mention
+            # Assuming you're replacing some placeholder or appending the mention at the end of the existing text
+            updated_content = block['your_text_field'] + f" Mentioning {page_name}"
+            
+            # Update the block with the new content
+            # Note: You'll need to adjust the structure of the update payload based on the specific type of block
+            update_payload = {
+                "your_text_field": {
+                    "type": "text",
+                    "text": {
+                        "content": updated_content
+                    }
+                }
+            }
+            notion.blocks.update(block_id, **update_payload)
+
+
 def process_bracket_words(bracket_words_dict, database_id):
     """Process words in brackets and replace them with page mentions."""
     for bracket_word in bracket_words_dict['bracket_words']:
         bracket_word_lower = bracket_word.lower()
         
         # Check if the page already exists
-        if bracket_word_lower in page_name_to_id:
+        if bracket_word_lower in page_name_to_id_dict:
             # The page exists, so fetch its ID and update the mention IDs
-            page_id = page_name_to_id[bracket_word_lower]
-            existing_pages[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
+            page_id = page_name_to_id_dict[bracket_word_lower]
+            existing_pages_dict[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
         else:
             # The page doesn't exist, so create it or fetch its ID
             queried_pages = search_page(bracket_word)
@@ -73,17 +104,17 @@ def process_bracket_words(bracket_words_dict, database_id):
                     created_page_id = created_page['id']
                     
                     # Update the existing_pages and page_name_to_id dictionaries
-                    existing_pages[created_page_id] = {
+                    existing_pages_dict[created_page_id] = {
                         'page_name': bracket_word_lower,
                         'page_block_mention_ids': {bracket_words_dict['page_block_id_mention']}
                     }
-                    page_name_to_id[bracket_word_lower] = page_id
+                    page_name_to_id_dict[bracket_word_lower] = page_id
                 else:
                     # Page exists but is not in the dictionary, retrieve its ID, and update the mention IDs
                     page_id = next((page['id'] for page in queried_pages['results'] if page['properties']['Name']['title'][0]['plain_text'].lower() == bracket_word_lower), None)
                     if page_id:
-                        existing_pages[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
-                        page_name_to_id[proper_page_name.lower()] = page_id 
+                        existing_pages_dict[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
+                        page_name_to_id_dict[proper_page_name.lower()] = page_id
     # Replace the bracketed word with a page mention
 
 def process_block(block, database_id):
