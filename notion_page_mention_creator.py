@@ -12,13 +12,14 @@ from block_types import Toggle
 #Initialize the client
 notion = Client(auth=os.getenv('NOTION_TOKEN'))
 block_type_constants = BlockTypeConstants()
-existing_pages = set()
+existing_pages = {}
+page_name_to_id = {}
 
 def retrieve_pages(database_id):
     """Retrieve all pages from the specified database"""
     return notion.databases.query(**{'database_id': database_id})
 
-def get_page_name(name, database_id):
+def search_page(name):
     search_params = {
         "query": name,
         "filter": {
@@ -28,26 +29,62 @@ def get_page_name(name, database_id):
     }
     return notion.search(**search_params)
 
-def create_page(name, database_id):
-    return '12345'
+def create_page(page_name, database_id):
+    create_parameters = {
+        'parent': {
+            'type': 'database_id',
+            'database_id': database_id
+        },
+        'properties': {
+            'Name': {
+                'title': [
+                    {
+                        'text': {
+                            'content': page_name
+                        }
+                    }
+                ]
+            }
+        }    
+    }
+    
+    return notion.pages.create(**create_parameters)
 
-def process_bracket_words(bracket_words, database_id):
+def process_bracket_words(bracket_words_dict, database_id):
     """Process words in brackets and replace them with page mentions."""
-    for bracket_name in bracket_words:
-        if bracket_name.lower() not in existing_pages:
-            page_results = get_page_name(bracket_name, database_id)
-            
-            if page_results:
-                for result in page_results['results']:
-                    page_name = result['properties']['Name']['title'][0]['plain_text']
-                    if page_name.lower() == bracket_name.lower():
-                        existing_pages.add(page_name.lower())
-                        break
-            else:
-                page_results = create_page(bracket_name[0].upper() + bracket_name[1:], database_id)
-        # Replace the bracketed word with a page mention
-        text_content = text_content.replace(f'[[{bracket_name}]]', f'<Notion page mention with id {page_results}>')
-    return text_content
+    for bracket_word in bracket_words_dict['bracket_words']:
+        bracket_word_lower = bracket_word.lower()
+        
+        # Check if the page already exists
+        if bracket_word_lower in page_name_to_id:
+            # The page exists, so fetch its ID and update the mention IDs
+            page_id = page_name_to_id[bracket_word_lower]
+            existing_pages[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
+        else:
+            # The page doesn't exist, so create it or fetch its ID
+            queried_pages = search_page(bracket_word)
+            if queried_pages:
+                queried_page_names = {page['properties']['Name']['title'][0]['plain_text'].lower() for page in queried_pages['results']}
+                
+                if bracket_word_lower not in queried_page_names:
+                    # Create a new page
+                    proper_page_name = bracket_word.capitalize()
+                    created_page = create_page(proper_page_name, database_id)
+                    created_page_id = created_page['id']
+                    
+                    # Update the existing_pages and page_name_to_id dictionaries
+                    existing_pages[created_page_id] = {
+                        'page_name': bracket_word_lower,
+                        'page_block_mention_ids': {bracket_words_dict['page_block_id_mention']}
+                    }
+                    page_name_to_id[bracket_word_lower] = page_id
+                else:
+                    # Page exists but is not in the dictionary, retrieve its ID, and update the mention IDs
+                    page_id = next((page['id'] for page in queried_pages['results'] if page['properties']['Name']['title'][0]['plain_text'].lower() == bracket_word_lower), None)
+                    if page_id:
+                        existing_pages[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
+                        page_name_to_id[proper_page_name.lower()] = page_id 
+    # Replace the bracketed word with a page mention
 
 def process_block(block, database_id):
     """Process a single block and its child blocks."""
@@ -70,8 +107,12 @@ def process_block(block, database_id):
         text = Toggle(block).plain_text()
         
     bracket_words = re.findall(r'\[\[(.*?)\]\]', text)
+    bracket_words_dict = {
+        'bracket_words': bracket_words,
+        'page_block_id_mention': block['id']
+    }
     if bracket_words:
-        process_bracket_words(bracket_words, database_id)
+        process_bracket_words(bracket_words_dict, database_id)
         
     if'has_children' in block and block['has_children']:
         child_blocks = notion.blocks.children.list(block_id=block['id'])
