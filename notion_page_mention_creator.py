@@ -1,6 +1,7 @@
 """Module providing system functions"""
 import os
 import re
+from dotenv import load_dotenv
 from notion_client import Client
 from block_types import BulletListItem
 from block_types import BlockTypeConstants
@@ -9,11 +10,12 @@ from block_types import NumberedListItem
 from block_types import Paragraph
 from block_types import Toggle
 
+# Load environment variables from .env file
+load_dotenv()
+
 #Initialize the client
 notion = Client(auth=os.getenv('NOTION_TOKEN'))
 block_type_constants = BlockTypeConstants()
-existing_pages_dict = {}
-page_name_to_id_dict = {}
 
 def retrieve_pages(database_id):
     """Retrieve all pages from the specified database"""
@@ -30,6 +32,7 @@ def search_page(name):
     return notion.search(**search_params)
 
 def create_page(page_name, database_id):
+    """Creates a new Notion page using the Notion Python SDK"""
     create_parameters = {
         'parent': {
             'type': 'database_id',
@@ -44,8 +47,13 @@ def create_page(page_name, database_id):
                         }
                     }
                 ]
+            },
+            'Type': {
+                'select': {
+                    'name': 'Review'
+                }
             }
-        }    
+        } 
     }
     
     return notion.pages.create(**create_parameters)
@@ -63,26 +71,28 @@ def create_page_mentions(existing_pages, database_id):
             # Fetch the block
             block = notion.blocks.retrieve(block_id)
             
-            # Construct the updated content for the block
-            # This part highly depends on the structure of your blocks and how you want to format the mention
-            # Assuming you're replacing some placeholder or appending the mention at the end of the existing text
-            updated_content = block['your_text_field'] + f" Mentioning {page_name}"
             
-            # Update the block with the new content
-            # Note: You'll need to adjust the structure of the update payload based on the specific type of block
-            update_payload = {
-                "your_text_field": {
-                    "type": "text",
-                    "text": {
-                        "content": updated_content
-                    }
-                }
-            }
-            notion.blocks.update(block_id, **update_payload)
 
+def title_case_except_articles(text):
+    """
+    Capitalizes every word in the page name if there are multiple words, except small words and articles unless they are the first word in the page name
+    """
+    small_words = {'the', 'a', 'an', 'in', 'on', 'at', 'to', 'by', 'with', 
+                   'over', 'under', 'from', 'and', 'but', 'or', 'nor', 'for', 
+                   'so', 'yet', 'as', 'if', 'then', 'that', 'than', 'when', 
+                   'who', 'whom', 'whose'}
+    
+    words = text.split()
+    new_title = [words[0].capitalize()]
+    new_title += [word if word.lower() in small_words else word.captialize() for word in words[1:]]
+    
+    return ' '.join(new_title)
 
 def process_bracket_words(bracket_words_dict, database_id):
     """Process words in brackets and replace them with page mentions."""
+    existing_pages_dict = {}
+    page_name_to_id_dict = {}
+
     for bracket_word in bracket_words_dict['bracket_words']:
         bracket_word_lower = bracket_word.lower()
         
@@ -96,10 +106,11 @@ def process_bracket_words(bracket_words_dict, database_id):
             queried_pages = search_page(bracket_word)
             if queried_pages:
                 queried_page_names = {page['properties']['Name']['title'][0]['plain_text'].lower() for page in queried_pages['results']}
+                queried_page_names = {name[4:] if name.startswith('the ') else name for name in queried_page_names}
                 
                 if bracket_word_lower not in queried_page_names:
                     # Create a new page
-                    proper_page_name = bracket_word.capitalize()
+                    proper_page_name = title_case_except_articles(bracket_word_lower)
                     created_page = create_page(proper_page_name, database_id)
                     created_page_id = created_page['id']
                     
@@ -113,9 +124,16 @@ def process_bracket_words(bracket_words_dict, database_id):
                     # Page exists but is not in the dictionary, retrieve its ID, and update the mention IDs
                     page_id = next((page['id'] for page in queried_pages['results'] if page['properties']['Name']['title'][0]['plain_text'].lower() == bracket_word_lower), None)
                     if page_id:
-                        existing_pages_dict[page_id]['page_block_mention_ids'].add(bracket_words_dict['page_block_id_mention'])
-                        page_name_to_id_dict[proper_page_name.lower()] = page_id
+                        # The {} in page_block_mention_ids creates a set instead of an array list
+                        existing_pages_dict[page_id] = {
+                            'page_name': bracket_word_lower,
+                            'page_block_mention_ids': {bracket_words_dict['page_block_id_mention']}
+                        }
+                        page_name_to_id_dict[bracket_word_lower] = page_id
+    print(existing_pages_dict)
+    
     # Replace the bracketed word with a page mention
+    create_page_mentions(existing_pages_dict, database_id)
 
 def process_block(block, database_id):
     """Process a single block and its child blocks."""
@@ -149,13 +167,13 @@ def process_block(block, database_id):
         child_blocks = notion.blocks.children.list(block_id=block['id'])
         for child_block in child_blocks['results']:
             process_block(child_block, database_id)
-    
+            
 def find_and_process_bracket_words(page_id, database_id):
     """Find words surrounded by '[[]]', process them, and replace with page mention."""
     blocks = notion.blocks.children.list(page_id)
     for block in blocks['results']:
         process_block(block, database_id)
-        
+    
 DATABASE_ID = 'dc8f63b3bc874a93818676af32fbad0e'
 
 page = notion.pages.retrieve(**{'page_id': 'f313100cf2034db4b54dc925d380d341'})
