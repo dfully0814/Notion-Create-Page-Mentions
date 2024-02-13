@@ -88,6 +88,60 @@ def process_child_block(child_block, database_id):
     
     child_block_mentions = re.findall(r'\[\[(.*?)\]\]', child_bock_type.plain_text())
 
+    populate_page_name_by_id_dict(database_id, child_block_mentions)
+
+    # Split the block text into parts at each [[]] page mention
+    child_block_text_parts = re.split(r"(?<=\]\])|(?=\[\[)", child_bock_type.plain_text())
+
+    # Initialize the rich text array
+    rich_text = []
+
+    # Iterate over the parts
+    for part in child_block_text_parts:
+        # If the part is a mention
+        if part.startswith("[[") and part.endswith("]]"):
+            # Remove the brackets to get the page name
+            page_name = part[2:-2]
+            # Check if the page exists and get its ID
+            page_id = page_name_to_id_dict.get(page_name.lower())
+            
+            if (page_id == None):
+                raise Exception(f"Page ID not found for page name: {page_name}")
+            
+            # Create a mention block
+            block = {
+                "type": "mention",
+                "mention": {
+                    "type": "page",
+                    "page": {
+                        "id": page_id
+                    }
+                }
+            }
+        else:
+            # If the part is not a mention, create a text block
+            block = {
+                "type": "text",
+                "text": {
+                    "content": part
+                }
+            }
+        # Add the block to the rich_text array
+        rich_text.append(block)
+
+    # Create the new mention block
+    mention_block = {
+        "paragraph": {
+            "rich_text": rich_text
+        }
+    }
+
+    # Update the original block
+    notion.blocks.update(block_id=child_block["id"], **mention_block)
+
+    time.sleep(1)
+
+def populate_page_name_by_id_dict(database_id, child_block_mentions):
     for child_block_mention in child_block_mentions:
         child_block_mention_lower = child_block_mention.lower()[4:] if child_block_mention.lower().startswith('the ') else child_block_mention.lower()
         # We haven't yet found the page id for the page name
@@ -101,7 +155,6 @@ def process_child_block(child_block, database_id):
                     if child_block_mention_lower == page_name:
                         exact_match_page_id = page['id']
                         break  # Stop searching once we've found an exact match
-                
                 if exact_match_page_id:
                     # An exact match was found, use this page's ID
                     page_name_to_id_dict[child_block_mention] = exact_match_page_id
@@ -113,49 +166,6 @@ def process_child_block(child_block, database_id):
                 # Search returned no results, create a new page
                 page_id = create_page(child_block_mention_lower, database_id)
                 page_name_to_id_dict[child_block_mention] = page_id
-
-        child_block_text_parts = re.split(r"\[\[(.*?)\]\]", child_bock_type.plain_text())
-        text_before_mention = child_block_text_parts[0] if len(child_block_text_parts) > 0 else ""
-        text_after_mention = child_block_text_parts[2] if len(child_block_text_parts) > 2 else ""
-
-        # Update block to remove the [[]] mention
-        child_block_text_updated_before = text_before_mention.replace(f"[[{child_block_mention}]]", "")
-
-        # Create a new mention block
-        mention_block = {
-            "paragraph": {
-                "rich_text": [
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": child_block_text_updated_before
-                        }
-                    },
-                    {
-                        "type": "mention",
-                        "mention": {
-                            "type": "page",
-                            "page": {
-                                "id": page_name_to_id_dict.get(child_block_mention)
-                            }
-                        }
-                    },
-                    {
-                        "type": "text",
-                        "text": {
-                            "content": text_after_mention
-                        }
-                    }
-                ]
-            }
-        }
-
-        notion.blocks.update(
-            block_id=child_block["id"],
-            **mention_block
-        )
-
-        time.sleep(1)
 
 def process_block(child_block, database_id):
     """Process a single block and its child blocks."""
