@@ -8,6 +8,9 @@ class Block:
     def update_payload(self, updated_text: str) -> dict:
         raise NotImplementedError
     
+    def block_type(self) -> str:
+        raise NotImplementedError
+    
 class BulletListItem(Block):
     def plain_text(self):
         return self.page_block["bulleted_list_item"]["rich_text"][0]["plain_text"]
@@ -19,6 +22,10 @@ class BulletListItem(Block):
             }
         }
     
+    def block_type(self) -> str:
+        return BlockTypeConstants.BULLET_LIST_ITEM
+    
+    
 class NumberedListItem(Block):
     def plain_text(self):
         return self.page_block["numbered_list_item"]["rich_text"][0]["plain_text"]
@@ -29,6 +36,9 @@ class NumberedListItem(Block):
                 "rich_text": [{"type": "text", "text": {"content": updated_text}}]
             }
         }
+    
+    def block_type(self) -> str:
+        return BlockTypeConstants.NUMBERED_LIST_ITEM
     
 class Heading(Block):
     def __init__(self, page_block, heading_type) -> None:
@@ -45,6 +55,9 @@ class Heading(Block):
             }
         }
     
+    def block_type(self) -> str:
+        return self.heading_type
+    
 class Toggle(Block):
     
     def plain_text(self):
@@ -56,6 +69,9 @@ class Toggle(Block):
                 "rich_text": [{"type": "text", "text": {"content": updated_text}}]
             }
         }
+    
+    def block_type(self) -> str:
+        return BlockTypeConstants.TOGGLE
         
 class Paragraph(Block):
     def plain_text(self):
@@ -70,6 +86,9 @@ class Paragraph(Block):
                 "rich_text": [{"type": "text", "text": {"content": updated_text}}]
             }
         }
+    
+    def block_type(self) -> str:
+        return BlockTypeConstants.PARAGRAPH
         
     
 class BlockTypeConstants:  
