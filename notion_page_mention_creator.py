@@ -233,7 +233,7 @@ def find_and_process_bracket_words(page_id, database_id):
     for child_block in child_blocks['results']:
         process_block(child_block, database_id)
     
-DATABASE_ID = 'dc8f63b3bc874a93818676af32fbad0e'
+DATABASE_ID = ''
 
 has_more = True
 next_cursor = None
